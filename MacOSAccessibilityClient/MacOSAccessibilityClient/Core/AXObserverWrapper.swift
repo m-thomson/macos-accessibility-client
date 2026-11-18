@@ -45,9 +45,10 @@ nonisolated final class AXObserverWrapper: @unchecked Sendable {
         let id: UUID = UUID()
         let timestamp: Date
         let notification: String
-        let pid: pid_t
+        let process: EventProcess
         let scope: Scope
         let element: AXElement
+        let role: String?
         let elementSummary: String
         let userInfo: [UserInfoEntry]
     }
@@ -107,6 +108,7 @@ nonisolated final class AXObserverWrapper: @unchecked Sendable {
 
     private let observer: AXObserver
     private let pid: pid_t
+    private let process: EventProcess
     private let onEvent: EventHandler
 
     private let stateLock = NSLock()
@@ -124,15 +126,17 @@ nonisolated final class AXObserverWrapper: @unchecked Sendable {
     /// can stall under target stress. Run-loop source is added on the main run loop
     /// (which is thread-safe for `CFRunLoopAddSource`).
     static func make(pid: pid_t, onEvent: @escaping EventHandler) async throws -> AXObserverWrapper {
-        try await AXRunner.run {
-            try AXObserverWrapper(syncFor: pid, onEvent: onEvent)
+        let process = await EventProcess.capture(pid: pid)
+        return try await AXRunner.run {
+            try AXObserverWrapper(syncFor: pid, process: process, onEvent: onEvent)
         }
     }
 
     /// Synchronous constructor; only safe to call inside an `AXRunner.run` block or
     /// other already-off-cooperative context.
-    private init(syncFor pid: pid_t, onEvent: @escaping EventHandler) throws {
+    private init(syncFor pid: pid_t, process: EventProcess, onEvent: @escaping EventHandler) throws {
         self.pid = pid
+        self.process = process
         self.onEvent = onEvent
 
         let createStart = CFAbsoluteTimeGetCurrent()
@@ -333,7 +337,7 @@ nonisolated final class AXObserverWrapper: @unchecked Sendable {
     private func handle(element: AXElement, notification: String, userInfo: [UserInfoEntry]) {
         let timestamp = Date.now
         let eventScope = scope(for: element.raw)
-        let pid = self.pid
+        let process = self.process
         let onEvent = self.onEvent
         // Build the element summary off-main via AXRunner, then post the event.
         // The timestamp is captured at arrival time so the unified log's
@@ -344,14 +348,15 @@ nonisolated final class AXObserverWrapper: @unchecked Sendable {
         let prior = orderingChain
         orderingChain = Task { @MainActor in
             await prior.value
-            let summary = await AXRunner.run { ElementLabel.shortSync(for: element) }
+            let summary = await ElementLabel.summary(for: element)
             onEvent(Event(
                 timestamp: timestamp,
                 notification: notification,
-                pid: pid,
+                process: process,
                 scope: eventScope,
                 element: element,
-                elementSummary: summary,
+                role: summary.role,
+                elementSummary: summary.text,
                 userInfo: userInfo
             ))
         }

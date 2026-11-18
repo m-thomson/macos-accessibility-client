@@ -47,13 +47,7 @@ Prefer to build from source? See [Getting started](#getting-started) below.
   in our app would otherwise cancel the target's menu tracking. Toggle in
   **View → Walk menu chain on AXPress**; per-press / refresh delays in
   **Settings**.
-- **Unified timeline.** A single bottom-pane log interleaves three
-  sources by timestamp — the inspected app's `AXObserver` notifications
-  (via `AXObserverCreateWithInfoCallback`, including the system-supplied
-  user-info dictionary), system-wide clicks, and system-wide focus
-  changes. Each row is rendered in its source column so the activity
-  flow is legible at a glance; click any row to reveal that element in
-  the tree, auto-switching the sidebar to the owning app if needed.
+- **Unified timeline.** The bottom pane combines the inspected app's AX notifications, global clicks, and global focus changes, newest first. Each single-line row has six resizable columns: Time, Scope, Process, Event, Element, and Details. Process shows the recorded name and PID; Details shows click coordinates or captured notification metadata. Event and element icons retain their colors. Hover over truncated text to read it in full, and select a row to reveal its element in the tree, switching apps when needed. The inspector reads the selected element's current attributes; it does not show an event-time snapshot.
 - **System-wide focus tracker.** Notification-driven, not polled. A
   single `AXObserver` rides the frontmost app's
   `kAXFocusedUIElementChangedNotification`, and

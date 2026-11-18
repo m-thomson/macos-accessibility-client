@@ -6,7 +6,26 @@
 //  Copyright (c) 2026 Nuclear Cyborg Corp.
 //
 
+import AppKit
 import Foundation
+
+/// Process identity captured with an event, so old rows still have a name after the app exits.
+nonisolated struct EventProcess: Equatable, Sendable {
+    let pid: pid_t?
+    let name: String?
+
+    @MainActor
+    static func capture(pid: pid_t?) -> EventProcess {
+        let name = pid.flatMap { NSRunningApplication(processIdentifier: $0)?.localizedName?.nonEmptyOrNil }
+        return EventProcess(pid: pid, name: name)
+    }
+
+    var description: String {
+        let name = name ?? "Unknown"
+        guard let pid else { return name }
+        return "\(name) (pid \(pid))"
+    }
+}
 
 /// One row in the unified log timeline. Carries an entry from any of the three
 /// log sources (per-app AX events, system-wide clicks, system-wide focus changes)
@@ -45,10 +64,59 @@ enum UnifiedLogEvent: Identifiable, Sendable {
     /// PID of the process owning the element, when known. Used by the unified-log
     /// row click handler to switch the sidebar to the right app before revealing.
     var pid: pid_t? {
+        process.pid
+    }
+
+    var process: EventProcess {
         switch self {
-        case .app(let event): return event.pid
-        case .click(let event): return event.pid
-        case .focus(let event): return event.pid
+        case .app(let event): return event.process
+        case .click(let event): return event.process
+        case .focus(let event): return event.process
+        }
+    }
+
+    var scopeDescription: String {
+        switch self {
+        case .app: return "Application"
+        case .click, .focus: return "Global"
+        }
+    }
+
+    var eventDescription: String {
+        switch self {
+        case .app(let event): return event.notification
+        case .click(let event): return event.isRightClick ? "Right click" : "Left click"
+        case .focus: return "Focus changed"
+        }
+    }
+
+    var elementSummary: String {
+        switch self {
+        case .app(let event): return event.elementSummary
+        case .click(let event): return event.summary
+        case .focus(let event): return event.summary
+        }
+    }
+
+    var elementRole: String? {
+        switch self {
+        case .app(let event): return event.role
+        case .click(let event): return event.role
+        case .focus(let event): return event.role
+        }
+    }
+
+    /// Only recorded metadata belongs here; rendering a row must not read live AX attributes.
+    var details: String {
+        switch self {
+        case .app(let event):
+            var parts = event.userInfo.map { "\($0.key): \($0.value)" }
+            if event.scope == .simulatorContent { parts.insert("iOS sim", at: 0) }
+            return parts.joined(separator: " · ")
+        case .click(let event):
+            return String(format: "(%.0f, %.0f)", event.location.x, event.location.y)
+        case .focus:
+            return ""
         }
     }
 

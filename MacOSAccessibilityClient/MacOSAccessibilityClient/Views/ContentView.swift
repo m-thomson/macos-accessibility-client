@@ -141,8 +141,7 @@ struct ContentView: View {
             .frame(minHeight: 360)
             UnifiedLogView(
                 entries: unifiedEntries,
-                appColumnTitle: appColumnTitle,
-                appColumnSubscriptionError: session?.lastError,
+                subscriptionError: session?.lastError,
                 clicksEnabled: $clicksEnabled,
                 focusEnabled: $focusEnabled,
                 onClear: clearAllLogs,
@@ -158,10 +157,6 @@ struct ContentView: View {
             clickEvents: clicks.history,
             focusEvents: focus.history
         )
-    }
-
-    private var appColumnTitle: String {
-        if let session { return session.app.name } else { return "App (no selection)" }
     }
 
     private func clearAllLogs() {

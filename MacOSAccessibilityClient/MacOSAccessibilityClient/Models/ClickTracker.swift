@@ -34,7 +34,7 @@ final class ClickTracker {
         let element: AXElement?
         let summary: String
         let role: String?
-        let pid: pid_t?
+        let process: EventProcess
     }
 
     private(set) var history: [ClickEvent] = []
@@ -108,12 +108,8 @@ final class ClickTracker {
                 guard err == .success, let element = raw.map(AXElement.init) else {
                     return Resolution(element: nil, summary: "(no element)", role: nil)
                 }
-                let role = element.syncRole()
-                let title = element.syncTitle()?.nonEmptyOrNil
-                let summary: String
-                if let title { summary = "<\(role ?? "<unidentified>") \"\(title)\">" }
-                else { summary = "<\(role ?? "<unidentified>")>" }
-                return Resolution(element: element, summary: summary, role: role)
+                let summary = ElementLabel.summarySync(for: element)
+                return Resolution(element: element, summary: summary.text, role: summary.role)
             }
 
             let click = ClickEvent(
@@ -123,7 +119,7 @@ final class ClickTracker {
                 element: resolution.element,
                 summary: resolution.summary,
                 role: resolution.role,
-                pid: resolution.element?.pid
+                process: EventProcess.capture(pid: resolution.element?.pid)
             )
             self.history.insert(click, at: 0)
             if self.history.count > Self.historyLimit {

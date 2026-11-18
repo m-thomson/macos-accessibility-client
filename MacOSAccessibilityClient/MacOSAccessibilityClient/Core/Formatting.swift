@@ -41,6 +41,11 @@ nonisolated enum Formatting {
 /// off-cooperative-pool, then format and return the string. Each call costs
 /// exactly one hop (all the reads run back-to-back on the AX queue).
 nonisolated enum ElementLabel {
+    struct Summary: Sendable {
+        let role: String?
+        let text: String
+    }
+
     /// "AXRole — Title" / "AXRole (Subrole)" / "<RoleDescription>" / "<unidentified>".
     /// Falls through richer attributes the more sparse the element is.
     static func long(for element: AXElement) async -> String {
@@ -85,11 +90,21 @@ nonisolated enum ElementLabel {
 
     /// Sync sibling of `short`; safe inside an `AXRunner.run` block.
     static func shortSync(for element: AXElement) -> String {
-        let role = element.syncRole() ?? "<unidentified>"
+        summarySync(for: element).text
+    }
+
+    /// Capture the role and label together so the event's icon needs no additional AX read.
+    static func summary(for element: AXElement) async -> Summary {
+        await AXRunner.run { Self.summarySync(for: element) }
+    }
+
+    static func summarySync(for element: AXElement) -> Summary {
+        let role = element.syncRole()
+        let displayedRole = role ?? "<unidentified>"
         if let title = element.syncTitle()?.nonEmptyOrNil {
-            return "<\(role) \"\(title)\">"
+            return Summary(role: role, text: "<\(displayedRole) \"\(title)\">")
         }
-        return "<\(role)>"
+        return Summary(role: role, text: "<\(displayedRole)>")
     }
 }
 

@@ -35,7 +35,7 @@ final class SystemFocusTracker {
         let element: AXElement
         let summary: String
         let role: String?
-        let pid: pid_t?
+        let process: EventProcess
     }
 
     private(set) var focusedElement: AXElement?
@@ -220,20 +220,20 @@ final class SystemFocusTracker {
         if let existing = focusedElement, existing == element {
             return
         }
-        // Fetch chain + label + role in one AX-queue hop, then update state.
+        // Capture display metadata before adding the event to history.
+        let process = EventProcess.capture(pid: element.pid)
         async let fetchedChain = element.ancestorChain()
-        async let fetchedSummary = ElementLabel.short(for: element)
-        async let fetchedRole = element.role()
-        let (chain, summary, role) = await (fetchedChain, fetchedSummary, fetchedRole)
+        async let fetchedSummary = ElementLabel.summary(for: element)
+        let (chain, summary) = await (fetchedChain, fetchedSummary)
 
         focusedElement = element
         ancestors = chain
         let event = FocusEvent(
             timestamp: .now,
             element: element,
-            summary: summary,
-            role: role,
-            pid: element.pid
+            summary: summary.text,
+            role: summary.role,
+            process: process
         )
         history.insert(event, at: 0)
         if history.count > Self.historyLimit {
