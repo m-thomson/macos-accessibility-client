@@ -10,9 +10,9 @@ import AppKit
 import ApplicationServices
 import Observation
 
-/// Tracks whether the running process has been granted Accessibility permission.
-/// AX permission is grant-once, system-wide, scoped to bundle ID + signature; if the
-/// signature changes (e.g. a clean dev build re-signs), the user has to re-grant.
+/// Tracks whether Accessibility access is available to the running process.
+/// The system trust flag can disagree with working AX reads. A successful read
+/// from another app also confirms access, without changing any system permissions.
 @MainActor
 @Observable
 final class AccessibilityPermissions {
@@ -23,9 +23,8 @@ final class AccessibilityPermissions {
 
     private(set) var isTrusted: Bool = false
 
-    /// Monotonically increases for each explicit trust check. Async work captures
-    /// the generation it belongs to and discards stale results so an older `false`
-    /// cannot overwrite a newer permission grant.
+    /// Only the latest check may update the banner. Older results must not undo
+    /// a newer grant or revocation while checks are running asynchronously.
     @ObservationIgnored
     private var trustCheckGeneration = 0
 
@@ -121,11 +120,7 @@ final class AccessibilityPermissions {
 
     @discardableResult
     private func applyTrustResult(_ trusted: Bool, generation: Int) -> Bool {
-        // Never let an older `false` result overwrite a newer check, but do accept
-        // `true` from any completed check. Trust can be granted while an earlier
-        // prompt/check is still in flight, and the UI should disappear as soon as
-        // any fresh TCC read observes the grant.
-        guard trusted || generation == trustCheckGeneration else { return false }
+        guard generation == trustCheckGeneration else { return false }
         isTrusted = trusted
         if trusted {
             promptFollowUpTask?.cancel()
@@ -158,13 +153,30 @@ final class AccessibilityPermissions {
 
     private func checkTrust(prompt: Bool) async -> Bool {
         let key = Self.trustedCheckOptionPrompt
+        let ownPID = ProcessInfo.processInfo.processIdentifier
+        let probePIDs = NSWorkspace.shared.runningApplications
+            .filter { $0.activationPolicy == .regular && $0.processIdentifier != ownPID }
+            .map(\.processIdentifier)
+
         return await AXRunner.run {
-            if prompt {
-                let opts = [key: true] as CFDictionary
-                return AXIsProcessTrustedWithOptions(opts)
-            } else {
-                return AXIsProcessTrusted()
+            if AXIsProcessTrusted() { return true }
+
+            // Verify actual cross-process access when the trust flag says no.
+            // Reading our own UI would succeed without permission, so ownPID is
+            // excluded above. Read only child references; discard their contents.
+            for pid in probePIDs {
+                let app = AXUIElementCreateApplication(pid)
+                guard AXUIElementSetMessagingTimeout(app, 0.25) == .success else { continue }
+                var children: CFTypeRef?
+                let result = AXUIElementCopyAttributeValue(app, kAXChildrenAttribute as CFString, &children)
+                if result == .success, let children, CFGetTypeID(children) == CFArrayGetTypeID() {
+                    return true
+                }
             }
+
+            guard prompt else { return false }
+            let opts = [key: true] as CFDictionary
+            return AXIsProcessTrustedWithOptions(opts)
         }
     }
 
