@@ -6,6 +6,7 @@ build/
 DerivedData/
 *.xcuserstate
 *.xcscheme
+!MacOSAccessibilityClient/MacOSAccessibilityClient.xcodeproj/xcshareddata/xcschemes/*.xcscheme
 xcuserdata/
 *.xcworkspace/xcuserdata/
 *.xcodeproj/xcuserdata/

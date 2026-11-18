@@ -30,15 +30,16 @@ final class RunningAppsViewModel {
     /// isolation; read in `deinit` when no other reference to `self` exists.
     @ObservationIgnored
     private nonisolated(unsafe) var notificationObservers: [NSObjectProtocol] = []
-    private var policyObservations: [pid_t: NSKeyValueObservation] = [:]
+    private var policyObservations: [pid_t: RunningAppPolicyObservation] = [:]
 
     init() {
         let nc = NSWorkspace.shared.notificationCenter
+        // Wait until AppKit finishes delivering a notification before removing observations.
         let launch = nc.addObserver(forName: NSWorkspace.didLaunchApplicationNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.rebuild() }
+            Task { @MainActor [weak self] in self?.rebuild() }
         }
         let terminate = nc.addObserver(forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.rebuild() }
+            Task { @MainActor [weak self] in self?.rebuild() }
         }
         notificationObservers = [launch, terminate]
         rebuild()
@@ -56,7 +57,7 @@ final class RunningAppsViewModel {
     }
 
     deinit {
-        // KVO entries in `policyObservations` self-invalidate on dict drop, but the
+        // Policy observations invalidate before releasing their applications, but the
         // workspace notification tokens need an explicit `removeObserver` — see
         // NSWorkspace docs. Lives for app lifetime today, but the cleanup keeps the
         // class re-entrant if it's ever re-created on the fly.
@@ -88,9 +89,30 @@ final class RunningAppsViewModel {
         let currentPids = Set(running.map(\.processIdentifier))
         policyObservations = policyObservations.filter { currentPids.contains($0.key) }
         for app in running where policyObservations[app.processIdentifier] == nil {
-            policyObservations[app.processIdentifier] = app.observe(\.activationPolicy, options: []) { [weak self] _, _ in
+            policyObservations[app.processIdentifier] = RunningAppPolicyObservation(app) { [weak self] in
                 Task { @MainActor [weak self] in self?.rebuild() }
             }
+        }
+    }
+}
+
+/// KVO tokens do not retain the object being observed. Keep both together so
+/// AppKit cannot notify a freed NSRunningApplication after a process exits.
+nonisolated final class RunningAppPolicyObservation {
+    private let application: NSRunningApplication
+    private let observation: NSKeyValueObservation
+
+    init(_ application: NSRunningApplication, onChange: @escaping @Sendable () -> Void) {
+        self.application = application
+        self.observation = application.observe(\.activationPolicy, options: []) { _, _ in
+            onChange()
+        }
+    }
+
+    deinit {
+        // Remove AppKit's notification registration while the application is still alive.
+        withExtendedLifetime(application) {
+            observation.invalidate()
         }
     }
 }

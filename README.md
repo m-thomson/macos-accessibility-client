@@ -74,6 +74,19 @@ Xcode 16+ and run. macOS 15 or later.
 
 The target is **non-sandboxed** so it can inspect and drive other apps via Accessibility APIs. Release builds are signed with the hardened runtime enabled for Developer ID notarization.
 
+For local development, keep the project open in Xcode with the **MacOSAccessibilityClient** scheme and **My Mac** destination. The development helper uses Apple's Xcode MCP interface and the project's Apple Development signing settings:
+
+```bash
+./dev.sh build          # Build without launching; record the verified app and build log
+./dev.sh test           # Run the Xcode regression tests
+./dev.sh test MacOSAccessibilityClientTests/RunningAppPolicyObservationTests
+./dev.sh run            # Run the last verified build without rebuilding
+./dev.sh build-and-run  # Build, then run that exact product
+./dev.sh stop           # Stop the development app and wait for it to exit
+```
+
+The helper serializes operations across checkouts and stops an existing instance before launching its replacement. It reports readiness when exactly one process from the verified bundle is running. A failed build, test run, or modified app bundle requires another successful build before `run`. Avoid using Xcode's Run or Test buttons while a helper command is active.
+
 On first launch the app calls `AXIsProcessTrustedWithOptions(prompt:
 true)`, which shows the macOS permission alert. If you miss it, use the
 in-app banner's "Open System Settings" button — it deep-links to **Privacy
