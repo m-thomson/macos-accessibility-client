@@ -10,9 +10,9 @@ import AppKit
 import ApplicationServices
 import Observation
 
-/// Tracks the set of regular (foreground) running applications and exposes them as
-/// `Identifiable` rows so SwiftUI can render a live list. Filters out background
-/// daemons (`.prohibited`, `.accessory`) since they don't have user-facing UI.
+/// Tracks regular (foreground) running applications plus Dock and WindowManager,
+/// whose system UI is useful to inspect despite their background activation policies.
+/// Exposes them as `Identifiable` rows so SwiftUI can render a live list.
 ///
 /// Note on iOS Simulator: simulated user-app processes are NOT surfaced here.
 /// They don't appear in `NSWorkspace.runningApplications`, and even when located
@@ -70,7 +70,11 @@ final class RunningAppsViewModel {
         let running = NSWorkspace.shared.runningApplications
         syncPolicyObservations(for: running)
         apps = running
-            .filter { $0.activationPolicy == .regular }
+            .filter {
+                $0.activationPolicy == .regular
+                    || $0.bundleIdentifier == "com.apple.dock"
+                    || $0.bundleIdentifier == "com.apple.WindowManager"
+            }
             .compactMap { RunningApp($0) }
             .sorted { lhs, rhs in
                 lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
